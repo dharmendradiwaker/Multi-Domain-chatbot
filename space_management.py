@@ -3,7 +3,6 @@
 import os
 import json
 import time
-import psutil
 import shutil
 import tempfile
 import streamlit as st
@@ -21,8 +20,15 @@ def create_new_space(space_description, uploaded_files, embedding_model):
     if 'session_id' not in st.session_state:
         st.error("Please provide your name and email.")
         return
-
     session_id = st.session_state['session_id']
+    user_email = st.session_state.get('user_email', None)
+    if not user_email:
+        st.error("User email is not set.")
+        return
+    # Ensure spaces are initialized in session state
+    if 'spaces' not in st.session_state:
+        st.session_state['spaces'] = {}
+
     new_space_id = space_description
 
     if new_space_id in st.session_state['spaces']:
@@ -30,8 +36,11 @@ def create_new_space(space_description, uploaded_files, embedding_model):
         return
 
     current_directory = os.getcwd()
+    directory = 'chroma_vector'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     try:
-        persist_directory_folder = os.path.join(current_directory, f'.\chroma_persistence2_{new_space_id}')
+        persist_directory_folder = os.path.join(directory, f'.\chroma_persistence_{new_space_id}')
 
     except Exception as e:
         print("error in saving persisting file path")
@@ -100,92 +109,146 @@ def create_new_space(space_description, uploaded_files, embedding_model):
     
     st.session_state['current_space'] = new_space_id
     st.session_state.messages = []
-    save_space(new_space_id)
-    save_chat_history(session_id)
+    save_user_data(st.session_state['user_name'], st.session_state['user_email'])
+    save_chat_history(session_id, new_space_id)
     save_all_spaces()
     st.success(f"Space '{space_description}' created successfully with files: {', '.join(valid_files)}!")
 
+def save_space(space_id):
+    if space_id not in st.session_state['spaces']:
+        st.error(f"Space '{space_id}' does not exist.")
+        return
+    directory = 'spaces_data'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    file_path = os.path.join(directory, f'{space_id}_space.json')
+    with open(file_path, 'w') as f:
+        json.dump(st.session_state['spaces'][space_id], f, indent=4)
+
+
 def switch_space(space_name):
-    if space_name in st.session_state['spaces']:
-        st.session_state['current_space'] = space_name
-        load_chat_history(st.session_state.get('session_id', ''))
-        save_space(st.session_state.get('session_id', ''))
-    else:
+    if space_name not in st.session_state['spaces']:
         st.error(f"Space '{space_name}' does not exist.")
+        return
+
+    st.session_state['current_space'] = space_name
+    session_id = st.session_state.get('session_id', '')
+
+    if session_id:
+        load_chat_history(session_id, space_name)
+    else:
+        st.error("Session ID is missing. Unable to load chat history.")
+
+    save_space(space_name)
 
 
-def close_open_files(directory):
-    for proc in psutil.process_iter():
-        try:
-            # Iterate through all file descriptors used by this process
-            for f in proc.open_files():
-                if directory in f.path:
-                    print(f"Terminating process holding file: {f.path}")
-                    proc.terminate()  # Close process if it holds an open file in the directory
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
-            continue
-
+import time
 
 def delete_space(space_name):
     space_info = st.session_state['spaces'].get(space_name)
     if space_info and 'chroma_directory' in space_info:
         shutil.rmtree(space_info['chroma_directory'])
-
+    
+    # Remove space from session state
     if space_name in st.session_state['spaces']:
         del st.session_state['spaces'][space_name]
-
     if st.session_state['current_space'] == space_name:
         st.session_state['current_space'] = None
         st.session_state.messages = []
-    
+
     chat_history_file = f"{st.session_state.get('session_id', '')}_chat_history.json"
     if os.path.exists(chat_history_file):
         os.remove(chat_history_file)
     st.success(f"Space '{space_name}' deleted successfully!")
 
-def save_space(space_id):
-    if space_id in st.session_state['spaces']:
-        file_path = f'{space_id}_space.json'
-        with open(file_path, 'w') as f:
-            json.dump(st.session_state['spaces'][space_id], f)
-    else:
-        st.error(f"Space with ID '{space_id}' does not exist.")
-
 
 def load_space(space_id):
-    file_path = f'{space_id}_space.json'
+    directory = 'spaces_data'
+    file_path = os.path.join(directory, f'{space_id}_space.json')
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             st.session_state['spaces'][space_id] = json.load(f)
     else:
         st.session_state['spaces'][space_id] = {}
 
-def save_all_spaces():
-    with open("all_spaces.json", 'w') as f:
-        json.dump(st.session_state['spaces'], f)
 
-def load_all_spaces():
-    if os.path.exists("all_spaces.json"):
-        with open("all_spaces.json", 'r') as f:
-            st.session_state['spaces'] = json.load(f)
-    else:
-        st.session_state['spaces'] = {}
+def get_session_history(session_id):
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
 
-def save_chat_history(session_id):
+def save_user_data(user_name, user_email):
+    user_data_file = 'users.json'
+    user_data = load_user_data()
+    
+    # Initialize user data if not present
+    if user_email not in user_data:
+        user_data[user_email] = {'name': user_name, 'spaces': {}}
+    
+    # Preserve existing spaces
+    existing_spaces = user_data[user_email]['spaces']
+    
+    # Update spaces with current session data without removing existing spaces
+    updated_spaces = {**existing_spaces, **st.session_state.get('spaces', {})}
+    
+    user_data[user_email]['spaces'] = updated_spaces
+    
+    # Save updated user data
+    with open(user_data_file, 'w') as f:
+        json.dump(user_data, f, indent=4)
+
+def load_user_data():
+    user_data_file = 'users.json'
+    if os.path.exists(user_data_file):
+        with open(user_data_file, 'r') as f:
+            return json.load(f)
+    return {}
+
+def get_user_spaces(user_email):
+    user_data = load_user_data()
+    return user_data.get(user_email, {}).get('spaces', {})
+
+def save_chat_history(session_id, space_id):
     if 'messages' in st.session_state:
-        chat_history_file = f'{session_id}_chat_history.json'
+        directory = 'chat_history_data'
+        if not os.path.exists(directory):
+            os.makedirs(directory)  # Create the directory if it does not exist
+        # Use both session_id and space_id to ensure unique file paths
+        chat_history_file = os.path.join(directory, f'{space_id}_{session_id}_chat_history.json')
         with open(chat_history_file, 'w') as f:
             json.dump(st.session_state.messages, f)
 
-def load_chat_history(session_id):
-    chat_history_file = f'{session_id}_chat_history.json'
+
+
+def load_chat_history(session_id, space_id):
+    directory = 'chat_history_data'
+    # Use both session_id and space_id to ensure the correct file is loaded
+    chat_history_file = os.path.join(directory, f'{space_id}_{session_id}_chat_history.json')
     if os.path.exists(chat_history_file):
         with open(chat_history_file, 'r') as f:
             st.session_state.messages = json.load(f)
     else:
         st.session_state.messages = []
 
-def get_session_history(session_id):
-        if session_id not in store:
-            store[session_id] = ChatMessageHistory()
-        return store[session_id]
+
+def save_all_spaces():
+    user_email = st.session_state.get('user_email')
+    if user_email:
+        user_data = load_user_data()
+        if user_email in user_data:
+            user_data[user_email]['spaces'] = st.session_state['spaces']
+            with open('users.json', 'w') as f:
+                json.dump(user_data, f, indent=4)
+
+
+def load_all_spaces():
+    user_email = st.session_state.get('user_email')
+    if user_email:
+        user_data = load_user_data()
+        if user_email in user_data:
+            st.session_state['spaces'] = user_data[user_email].get('spaces', {})
+        else:
+            st.session_state['spaces'] = {}
+    else:
+        st.session_state['spaces'] = {}
+
