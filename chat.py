@@ -25,7 +25,7 @@ def update_memory(new_message):
 def get_prompt_for_file_type(file_type):
     prompts = {
         "interview": ChatPromptTemplate.from_messages([
-            ("system", "You are an assistant for interview question-answering tasks. Use the following pieces of retrieved context to answer the question. Provide a detailed and informative answer based on the document."),
+            ("system", "You are an assistant for interview question-answering tasks. Use the following pieces of retrieved context to answer the question. Provide a detailed and informative answer based on the document. along with response mention reference page number from document."),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}")
         ]),
@@ -35,7 +35,7 @@ def get_prompt_for_file_type(file_type):
             ("human", "{input}")
         ]),
         "interior_design": ChatPromptTemplate.from_messages([
-            ("system", "You are an assistant for interior design queries. Provide answers based on the context retrieved from the document, focusing on design aspects."),
+            ("system", "You are an assistant for interior design queries. Provide answers based on the context retrieved from the document, focusing on design aspects. along with response mention reference page number from document."),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}")
         ]),
@@ -56,7 +56,7 @@ def setup_chatbot(llm, vectordb, file_type):
     system_prompt = (
         "You are an assistant for question-answering tasks. "
         "Use the following pieces of retrieved context to answer the question. "
-        "give the reference of page number of answer"
+        "give the reference of page number and file name from which answer is getting"
         "If the retrieved context is empty or the question does not belong to interview preparation, "
         "you can give the answer of general mannerful like reply of hii and good morning"
         "respond with 'I don't know the answer to that based on the document.' "
