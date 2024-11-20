@@ -50,7 +50,7 @@ Welcome to the **Multi-Domain Q&A Chatbot**! This chatbot provides an intuitive 
 
 1. **Clone the Repository**:  
    ```bash
-   git clone https://github.com/your-username/multi-domain-chatbot.git
+   git clone https://github.com/dharmendradiwaker/chatbot.git
    cd multi-domain-chatbot
    ```
 
